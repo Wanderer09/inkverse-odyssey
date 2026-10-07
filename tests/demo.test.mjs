@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { createDemoEngine } from '../demo/runtime.mjs';
-import { lessons } from '../content/lessons.mjs';
+import { curriculumLessons as lessons } from '../content/lessons.mjs';
 
 function storage() { const values = new Map(); return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key), values }; }
 function setup(local = storage(), auth = storage()) {
@@ -91,7 +91,7 @@ test('禁用存储时明确提示临时模式，空间耗尽不假报保存，�
 
 test('静态构建适配 Pages 子路径，产物无服务器代码、密钥、原始讲义和模型请求', () => {
   execFileSync(process.execPath, ['scripts/build-demo.mjs']);
-  assert.deepEqual(readdirSync('dist').sort(), ['.nojekyll', 'app.js', 'browser-demo.js', 'demo-content.js', 'favicon.svg', 'index.html', 'learning-core.js', 'styles.css', 'transport.js'].sort());
+  assert.deepEqual(readdirSync('dist').sort(), ['.nojekyll', 'app.js', 'browser-demo.js', 'demo-content.js', 'extra-content.js', 'favicon.svg', 'index.html', 'learning-core.js', 'styles.css', 'transport.js'].sort());
   const html = readFileSync('dist/index.html', 'utf8'); assert.match(html, /data-runtime="browser-demo"/); assert.ok(!/\b(?:src|href)="\//.test(html));
   const version = html.match(/app\.js\?v=([a-f0-9]{12})/)[1];
   assert.ok(html.includes(`styles.css?v=${version}`));
@@ -99,6 +99,7 @@ test('静态构建适配 Pages 子路径，产物无服务器代码、密钥、�
   assert.ok(readFileSync('dist/transport.js', 'utf8').includes(`browser-demo.js?v=${version}`));
   const runtime = readFileSync('dist/browser-demo.js', 'utf8'); assert.ok(!runtime.includes('../content/')); assert.ok(!runtime.includes('fetch('));
   assert.ok(runtime.includes(`demo-content.js?v=${version}`)); assert.ok(runtime.includes(`learning-core.js?v=${version}`));
+  assert.ok(readFileSync('dist/demo-content.js','utf8').includes(`extra-content.js?v=${version}`));
   const core = readFileSync('dist/learning-core.js', 'utf8'); assert.ok(!core.includes('callModel')); assert.ok(!core.includes('MODEL_API_KEY')); assert.ok(!core.includes('fetch('));
   assert.match(readFileSync('dist/app.js', 'utf8'), /INKVERSE ODYSSEY/);
 });

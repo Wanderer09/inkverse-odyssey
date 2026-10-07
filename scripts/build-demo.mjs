@@ -5,11 +5,11 @@ import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = resolve(root, 'dist');
-const sourceFiles = ['public/index.html', 'public/app.js', 'public/transport.js', 'public/styles.css', 'demo/runtime.mjs', 'content/lessons.mjs', 'agent/teaching.mjs'];
+const sourceFiles = ['public/index.html', 'public/app.js', 'public/transport.js', 'public/styles.css', 'demo/runtime.mjs', 'content/lessons.mjs', 'content/extra-lessons.mjs', 'agent/teaching.mjs'];
 const hash = createHash('sha256');
 for (const file of sourceFiles) hash.update(readFileSync(resolve(root, file)));
 const version = hash.digest('hex').slice(0, 12);
-const versioned = text => text.replace(/(['"])\.\/(app\.js|transport\.js|styles\.css|browser-demo\.js|demo-content\.js|learning-core\.js)(['"])/g, (_, quote, file, end) => `${quote}./${file}?v=${version}${end}`);
+const versioned = text => text.replace(/(['"])\.\/(app\.js|transport\.js|styles\.css|browser-demo\.js|demo-content\.js|extra-content\.js|learning-core\.js)(['"])/g, (_, quote, file, end) => `${quote}./${file}?v=${version}${end}`);
 mkdirSync(dist, { recursive: true });
 let html = readFileSync(resolve(root, 'public/index.html'), 'utf8')
   .replace('<html lang="zh-CN">', '<html lang="zh-CN" data-runtime="browser-demo">')
@@ -29,7 +29,8 @@ for (const name of ['app.js', 'transport.js', 'styles.css', 'favicon.svg']) {
     .replace('参与学习', '本浏览器学习会话');
   writeFileSync(resolve(dist, name), versioned(text));
 }
-writeFileSync(resolve(dist, 'demo-content.js'), readFileSync(resolve(root, 'content/lessons.mjs'), 'utf8'));
+writeFileSync(resolve(dist, 'demo-content.js'), versioned(readFileSync(resolve(root, 'content/lessons.mjs'), 'utf8').replace('./extra-lessons.mjs', './extra-content.js')));
+writeFileSync(resolve(dist, 'extra-content.js'), readFileSync(resolve(root, 'content/extra-lessons.mjs'), 'utf8'));
 writeFileSync(resolve(dist, 'learning-core.js'), readFileSync(resolve(root, 'agent/teaching.mjs'), 'utf8'));
 writeFileSync(resolve(dist, 'browser-demo.js'), versioned(readFileSync(resolve(root, 'demo/runtime.mjs'), 'utf8')
   .replace('../content/lessons.mjs', './demo-content.js').replace('../agent/teaching.mjs', './learning-core.js')));

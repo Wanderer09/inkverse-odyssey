@@ -76,9 +76,9 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
         const target = stages.indexOf(body.stage), current = stages.indexOf(session.stage);
         if (target < 0 || target > current + 1) throw error('请按顺序学习。');
         if (target >= 1 && !session.readingCheck && !session.answers.length) throw error('先自查字音和朗读，再继续。');
-        if (target >= 2 && !lesson.questions.every(q => session.answers.some(a => a.questionId === q.id && a.correct))) throw error('先完成两个读懂小挑战，再讲故事。');
-        if (target >= 3 && !session.retellings.length) throw error('先提交一次自己的故事。');
-        if (target === 4 && !session.reflections?.length) throw error('先提交自己的道理感悟。');
+        if (target >= 2 && !lesson.questions.every(q => session.answers.some(a => a.questionId === q.id && a.correct))) throw error('先完成两个读懂小挑战，再进入说一说。');
+        if (target >= 3 && !session.retellings.length) throw error('先提交一次自己的文意表达。');
+        if (target === 4 && !session.reflections?.length) throw error('先提交自己的感悟。');
         session.stage = body.stage; save(state); return safe(session);
       }
       if (action === 'reading') {
@@ -89,7 +89,7 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
         if (session.stage !== 'reflect') throw error('请在悟一悟阶段表达。');
         const text = issue(body.text), feedback = localReflect(lesson, text);
         (session.reflections ??= []).push({ text, feedback, at: now() });
-        record(state, session, '道理感悟', text, lesson.reflectionPrompt); save(state); return feedback;
+        record(state, session, lesson.reflectionCategory ?? '道理感悟', text, lesson.reflectionPrompt); save(state); return feedback;
       }
       if (action === 'note') {
         if (!lesson.notes.some(n => n[0] === body.word)) throw error('词语无效。');
@@ -122,7 +122,7 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
         const text = issue(body.text), character = issue(body.character, 600), feedback = localRetell(lesson, text);
         session.retellings.push({ text, character, feedback, at: now() });
         record(state, session, lesson.characterLabel, character, lesson.characterPrompt);
-        record(state, session, feedback.copied ? '原文转述' : (lesson.expressionType === 'ideas' ? '文意讲述' : '故事复述'), text, feedback.rubric.map(r => r.suggestion).join(' '), { rubric: feedback.rubric });
+        record(state, session, feedback.copied ? '原文转述' : ({story:'故事复述',ideas:'文意讲述',poetry:'诗意表达',scenery:'景物讲述'}[lesson.expressionType] ?? '文意讲述'), text, feedback.rubric.map(r => r.suggestion).join(' '), { rubric: feedback.rubric });
         save(state); return { ...feedback, fallback: false, attempt: session.retellings.length };
       }
       throw error('未找到此操作。', 404);
@@ -156,7 +156,7 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
         state.sessions = state.sessions.filter(s => s.id !== sm[1]); state.records = state.records.filter(r => r.sessionId !== sm[1]); save(state); return { ok: true };
       }
       if (method === 'GET' && path === '/api/teacher/export') {
-        const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...state.records.map(r => [r.student, lessons.find(l => l.id === r.lessonId).title, stageNames[r.stage], r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '浏览器演示学习数据'])];
+        const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...state.records.map(r => [r.student, (() => {const l=lessons.find(l=>l.id===r.lessonId);return (l.collection==='extra'?'课外'+String(l.number).padStart(3,'0')+' · ':'')+l.title;})(), stageNames[r.stage], r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '浏览器演示学习数据'])];
         return { csv: '\ufeff' + rows.map(row => row.map(demoCsvCell).join(',')).join('\r\n') };
       }
     }

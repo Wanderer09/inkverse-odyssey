@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp, csvCell } from '../server.mjs';
-import { lessons } from '../content/lessons.mjs';
+import { curriculumLessons as lessons, extraLessons } from '../content/lessons.mjs';
 import { localRetell, redact } from '../agent/core.mjs';
 
 async function fixture(t, options = {}) {
@@ -152,4 +152,22 @@ test('服务端强制三步学习边界，并保存人物特点、朗读自查�
   const auth=await teacher(request),r=await request('/api/teacher/records','GET',undefined,auth);
   assert.equal(r.data.records.length,3);assert.equal(r.data.sessions[0].reflections[0].feedback.status,'待复核');
   const csv=await request('/api/teacher/export','GET',undefined,auth);assert.match(csv.data,/人物特点/);assert.match(csv.data,/悟一悟/);
+});
+
+test('服务端课外叙事、诗歌与论述课程可学，教师能区分课外编号和同名课内选文',async t=>{
+  const {request}=await fixture(t);
+  const config=(await request('/api/config')).data;
+  assert.equal(config.lessons.length,114);assert.equal(config.extraReading.count,100);
+  for(const lesson of extraLessons.filter(l=>[1,51,75].includes(l.number))){
+    const s=await learner(request,lesson.id);await s.call('stage',{stage:'understand'});
+    for(const q of lesson.questions)await s.call('answer',{questionId:q.id,option:q.answer});
+    await s.call('stage',{stage:'retell'});
+    assert.equal((await s.call('retell',{text:'我想用自己的话说明选文的内容，并回原文核对。',character:'我的发现需要具体原句支持。'})).status,200);
+    await s.call('stage',{stage:'reflect'});await s.call('reflect',{text:'我准备比较原文中的前后变化，再说明自己的感悟。'});
+    assert.equal((await s.call('stage',{stage:'finish'})).status,200);
+  }
+  const auth=await teacher(request), result=(await request('/api/teacher/records','GET',undefined,auth)).data;
+  assert.equal(result.records.length,9);assert.ok(result.records.some(r=>r.category==='诗意表达'));assert.ok(result.records.some(r=>r.category==='阅读感悟'));
+  const csv=(await request('/api/teacher/export','GET',undefined,auth)).data;
+  assert.match(csv,/课外001 · 学弈/);assert.match(csv,/课外051 · 题西林壁/);assert.match(csv,/课外075 · 画地为牢/);
 });

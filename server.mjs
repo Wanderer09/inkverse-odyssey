@@ -82,9 +82,9 @@ export function createApp(options = {}) {
             const target = stages.indexOf(data.stage), current = stages.indexOf(s.stage);
             if (target > current + 1) throw fail(400, '请按顺序学习。');
             if (target >= 1 && !s.readingCheck && !s.answers.length) throw fail(400, '先自查字音和朗读，再继续。');
-            if (target >= 2 && !lesson.questions.every(q => s.answers.some(a => a.questionId === q.id && a.correct))) throw fail(400, '先完成两个读懂小挑战，再讲故事。');
-            if (target >= 3 && !s.retellings.length) throw fail(400, '先提交一次自己的故事。');
-            if (target === 4 && !s.reflections?.length) throw fail(400, '先提交自己的道理感悟。');
+            if (target >= 2 && !lesson.questions.every(q => s.answers.some(a => a.questionId === q.id && a.correct))) throw fail(400, '先完成两个读懂小挑战，再进入说一说。');
+            if (target >= 3 && !s.retellings.length) throw fail(400, '先提交一次自己的文意表达。');
+            if (target === 4 && !s.reflections?.length) throw fail(400, '先提交自己的感悟。');
             s.stage = data.stage; save(); return reply(200, safeSession(s));
           }
           if (action === 'reading') {
@@ -95,7 +95,7 @@ export function createApp(options = {}) {
             if (s.stage !== 'reflect') throw fail(400, '请在悟一悟阶段表达。');
             const text = input(data.text), feedback = localReflect(lesson, text);
             (s.reflections ??= []).push({ text, feedback, at: new Date().toISOString() });
-            record(s, '道理感悟', text, lesson.reflectionPrompt); save(); return reply(200, feedback);
+            record(s, lesson.reflectionCategory ?? '道理感悟', text, lesson.reflectionPrompt); save(); return reply(200, feedback);
           }
           if (action === 'note') {
             const note = lesson.notes.find(n => n[0] === data.word); if (!note) throw fail(400, '词语无效。');
@@ -134,7 +134,7 @@ export function createApp(options = {}) {
             feedback ??= localRetell(lesson, text);
             s.retellings.push({ text, character, feedback, at: new Date().toISOString() });
             record(s, lesson.characterLabel, character, lesson.characterPrompt);
-            record(s, feedback.copied ? '原文转述' : (lesson.expressionType === 'ideas' ? '文意讲述' : '故事复述'), text, feedback.copied ? '引导将原文换成日常表达，先完成故事开始。' : feedback.rubric.filter(r => r.status !== '已提及').map(r => r.suggestion).join(' '), { rubric: feedback.rubric, engine: feedback.engine });
+            record(s, feedback.copied ? '原文转述' : ({story:'故事复述',ideas:'文意讲述',poetry:'诗意表达',scenery:'景物讲述'}[lesson.expressionType] ?? '文意讲述'), text, feedback.copied ? '引导将原文换成日常表达，先完成第一部分。' : feedback.rubric.filter(r => r.status !== '已提及').map(r => r.suggestion).join(' '), { rubric: feedback.rubric, engine: feedback.engine });
             save(); return reply(200, { ...feedback, fallback, attempt: s.retellings.length });
           }
           throw fail(404, '未找到此操作。');
@@ -168,7 +168,7 @@ export function createApp(options = {}) {
             store.sessions = store.sessions.filter(s => s.id !== sm[1]); store.records = store.records.filter(r => r.sessionId !== sm[1]); save(); return reply(200, { ok: true });
           }
           if (req.method === 'GET' && path === '/api/teacher/export') {
-            const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...store.records.map(r => [r.student, lessons.find(l => l.id === r.lessonId).title, ({ read: '读一读', understand: '读一读·句意', retell: '说一说', reflect: '悟一悟', finish: '学习小结' })[r.stage], r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '学习过程数据'])];
+            const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...store.records.map(r => [r.student, (() => {const l=lessons.find(l=>l.id===r.lessonId);return (l.collection==='extra'?'课外'+String(l.number).padStart(3,'0')+' · ':'')+l.title;})(), ({ read: '读一读', understand: '读一读·句意', retell: '说一说', reflect: '悟一悟', finish: '学习小结' })[r.stage], r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '学习过程数据'])];
             res.setHeader('Content-Disposition', 'attachment; filename="learning-records.csv"'); return reply(200, '\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n'), 'text/csv; charset=utf-8');
           }
         }

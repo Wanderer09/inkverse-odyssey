@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../dist/', import.meta.url));
 const base = '/inkverse-odyssey/';
-const files = new Map(['index.html', 'app.js', 'transport.js', 'styles.css', 'favicon.svg', 'browser-demo.js', 'demo-content.js', 'learning-core.js'].map(name => [base + name, name]));
+const files = new Map(['index.html', 'app.js', 'transport.js', 'styles.css', 'favicon.svg', 'browser-demo.js', 'demo-content.js', 'extra-content.js', 'learning-core.js'].map(name => [base + name, name]));
 files.set(base, 'index.html');
 const types = { html: 'text/html', js: 'text/javascript', css: 'text/css', svg: 'image/svg+xml' };
 http.createServer((req, res) => {

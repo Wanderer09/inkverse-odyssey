@@ -1,5 +1,7 @@
 // 古籍原文；注释、支架和任务为本作品编写。册次依据用户提供的3—6年级学习目录。
-export const lessons = [
+import { extraLessons, extraReading } from './extra-lessons.mjs';
+export { extraLessons, extraReading };
+export const curriculumLessons = [
   {
     "id": "sima",
     "title": "司马光",
@@ -1764,6 +1766,6 @@ export const lessons = [
   }
 ];
 
-export const extraReading = { title: "小学生小古文100课", url: "https://mp.weixin.qq.com/s/w9qKPnqRsDTKzt28itSbBw", description: "课外阅读资料入口。可配合手边读物，按读一读、说一说、悟一悟的方法自主阅读。", status: "资料入口" };
+export const lessons = [...curriculumLessons.map(l => ({ ...l, collection: 'curriculum' })), ...extraLessons];
 
 export function publicLesson(lesson) { const { story, questions, ...rest } = lesson; return { ...rest, story: story.map(({ label, question }) => ({ label, question })), questions: questions.map(({ answer, explanation, ...q }) => q) }; }
