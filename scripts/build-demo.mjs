@@ -1,9 +1,15 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const dist = resolve(root, 'dist');
+const sourceFiles = ['public/index.html', 'public/app.js', 'public/transport.js', 'public/styles.css', 'demo/runtime.mjs', 'content/lessons.mjs', 'agent/teaching.mjs'];
+const hash = createHash('sha256');
+for (const file of sourceFiles) hash.update(readFileSync(resolve(root, file)));
+const version = hash.digest('hex').slice(0, 12);
+const versioned = text => text.replace(/(['"])\.\/(app\.js|transport\.js|styles\.css|browser-demo\.js|demo-content\.js|learning-core\.js)(['"])/g, (_, quote, file, end) => `${quote}./${file}?v=${version}${end}`);
 mkdirSync(dist, { recursive: true });
 let html = readFileSync(resolve(root, 'public/index.html'), 'utf8')
   .replace('<html lang="zh-CN">', '<html lang="zh-CN" data-runtime="browser-demo">')
@@ -11,7 +17,7 @@ let html = readFileSync(resolve(root, 'public/index.html'), 'utf8')
   .replaceAll('href="/', 'href="./').replaceAll('src="/', 'src="./')
   .replace('本地作品演示默认口令：246810。实际使用前请在服务端修改。', '演示口令：246810。此入口用于体验教师流程，记录只来自当前浏览器。')
   .replace('查看学习证据，记录下一步教学。请使用教师口令。', '查看此浏览器中的学习记录。演示入口不代表真实学校账号权限。');
-writeFileSync(resolve(dist, 'index.html'), html);
+writeFileSync(resolve(dist, 'index.html'), versioned(html));
 for (const name of ['app.js', 'transport.js', 'styles.css', 'favicon.svg']) {
   let text = readFileSync(resolve(root, 'public', name), 'utf8');
   if (name === 'app.js') text = text
@@ -21,11 +27,11 @@ for (const name of ['app.js', 'transport.js', 'styles.css', 'favicon.svg']) {
     .replace('表达会保留给教师复核。', '表达存于此浏览器，可在教师演示端复核。')
     .replace('你的尝试和求助，老师都能看到。', '你的尝试和求助，保存在本浏览器的教师演示端。')
     .replace('参与学习', '本浏览器学习会话');
-  writeFileSync(resolve(dist, name), text);
+  writeFileSync(resolve(dist, name), versioned(text));
 }
 writeFileSync(resolve(dist, 'demo-content.js'), readFileSync(resolve(root, 'content/lessons.mjs'), 'utf8'));
 writeFileSync(resolve(dist, 'learning-core.js'), readFileSync(resolve(root, 'agent/teaching.mjs'), 'utf8'));
-writeFileSync(resolve(dist, 'browser-demo.js'), readFileSync(resolve(root, 'demo/runtime.mjs'), 'utf8')
-  .replace('../content/lessons.mjs', './demo-content.js').replace('../agent/teaching.mjs', './learning-core.js'));
+writeFileSync(resolve(dist, 'browser-demo.js'), versioned(readFileSync(resolve(root, 'demo/runtime.mjs'), 'utf8')
+  .replace('../content/lessons.mjs', './demo-content.js').replace('../agent/teaching.mjs', './learning-core.js')));
 writeFileSync(resolve(dist, '.nojekyll'), '');
 console.log('InkVerse Odyssey Pages demo built in dist/ (no server or model keys).');
