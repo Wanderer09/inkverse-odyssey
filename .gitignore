@@ -1,0 +1,10 @@
+data/
+.env
+node_modules/
+tmp/
+.playwright-cli/
+output/playwright/*.yml
+dist/
+output/
+raw_materials/
+/*.pdf

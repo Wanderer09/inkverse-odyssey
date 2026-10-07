@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f5f5ed">
+  <title>小古文 · 文言文启蒙学伴</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div id="app"><div class="loading">正在打开小古文书房……</div></div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <dialog id="login-dialog">
+    <form id="login-form">
+      <span class="eyebrow">TEACHER’S DESK</span><h2>进入教师记录台</h2>
+      <p>查看学习证据，记录下一步教学。请使用教师口令。</p>
+      <label for="teacher-pin">教师口令</label>
+      <input id="teacher-pin" name="pin" type="password" autocomplete="current-password" required maxlength="80">
+      <p class="small">本地作品演示默认口令：246810。实际使用前请在服务端修改。</p>
+      <p id="login-error" role="alert"></p>
+      <div class="actions"><button type="button" class="button subtle" id="close-login">返回书房</button><button class="button primary" type="submit">进入记录台 →</button></div>
+    </form>
+  </dialog>
+  <dialog id="delete-dialog">
+    <form id="delete-form">
+      <h2>删除这次学习记录？</h2><p>会删除此学习编号的会话、回答和所有困难记录，无法恢复。</p>
+      <div class="actions"><button class="button subtle" type="button" id="close-delete">保留记录</button><button class="button danger" type="submit">删除记录</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

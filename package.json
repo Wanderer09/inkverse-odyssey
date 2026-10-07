@@ -1,0 +1,14 @@
+{
+  "name": "inkverse-odyssey",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "小古文 · 小学文言文启蒙学伴",
+  "engines": { "node": ">=22.9.0" },
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build:demo": "node scripts/build-demo.mjs",
+    "preview:demo": "node scripts/preview-demo.mjs"
+  }
+}
