@@ -1,8 +1,8 @@
-import { lessons, publicLesson } from '../content/lessons.mjs';
-import { redact, localChat, localRetell } from '../agent/teaching.mjs';
+import { lessons, publicLesson, extraReading } from '../content/lessons.mjs';
+import { redact, localChat, localRetell, localReflect } from '../agent/teaching.mjs';
 
-const stages = ['read', 'understand', 'retell', 'finish'];
-const stageNames = { read: '读原文', understand: '说句意', retell: '讲故事', finish: '学习小结' };
+const stages = ['read', 'understand', 'retell', 'reflect', 'finish'];
+const stageNames = { read: '读一读', understand: '读一读·句意', retell: '说一说', reflect: '悟一悟', finish: '学习小结' };
 const error = (message, status = 400) => Object.assign(new Error(message), { status });
 const safe = session => { const { token, ...rest } = session; return rest; };
 const clone = value => JSON.parse(JSON.stringify(value));
@@ -55,7 +55,7 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
     if (method === 'GET' && path === '/api/config') return {
       isDemo: true, mode: 'local', model: null, label: '浏览器本地演示', persistence: persistent ? 'localStorage' : 'memory',
       disclosure: persistent ? 'GitHub Pages 演示版：学伴使用本地支架提示。学习与教师记录只存于当前浏览器，不发送到服务器；复述语义需教师复核。' : '浏览器未允许本地存储。本次可临时体验，但刷新后记录会丢失；学伴采用本地提示，复述需教师复核。',
-      lessons: lessons.map(publicLesson)
+      extraReading, lessons: lessons.map(publicLesson)
     };
     const state = read();
     if (method === 'POST' && path === '/api/sessions') {
@@ -75,9 +75,21 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
       if (action === 'stage') {
         const target = stages.indexOf(body.stage), current = stages.indexOf(session.stage);
         if (target < 0 || target > current + 1) throw error('请按顺序学习。');
+        if (target >= 1 && !session.readingCheck && !session.answers.length) throw error('先自查字音和朗读，再继续。');
         if (target >= 2 && !lesson.questions.every(q => session.answers.some(a => a.questionId === q.id && a.correct))) throw error('先完成两个读懂小挑战，再讲故事。');
-        if (target === 3 && !session.retellings.length) throw error('先提交一次自己的故事。');
+        if (target >= 3 && !session.retellings.length) throw error('先提交一次自己的故事。');
+        if (target === 4 && !session.reflections?.length) throw error('先提交自己的道理感悟。');
         session.stage = body.stage; save(state); return safe(session);
+      }
+      if (action === 'reading') {
+        if (session.stage !== 'read' || body.pronunciation !== true || body.fluency !== true) throw error('请完成两项朗读自查。');
+        session.readingCheck = { pronunciation: true, fluency: true, type: '学生自查', at: now() }; save(state); return { ok: true };
+      }
+      if (action === 'reflect') {
+        if (session.stage !== 'reflect') throw error('请在悟一悟阶段表达。');
+        const text = issue(body.text), feedback = localReflect(lesson, text);
+        (session.reflections ??= []).push({ text, feedback, at: now() });
+        record(state, session, '道理感悟', text, lesson.reflectionPrompt); save(state); return feedback;
       }
       if (action === 'note') {
         if (!lesson.notes.some(n => n[0] === body.word)) throw error('词语无效。');
@@ -107,9 +119,10 @@ export function createDemoEngine({ storage, authStorage, namespace = 'inkverse-o
       }
       if (action === 'retell') {
         if (session.stage !== 'retell') throw error('请先完成读懂阶段。');
-        const text = issue(body.text), feedback = localRetell(lesson, text);
-        session.retellings.push({ text, feedback, at: now() });
-        record(state, session, feedback.copied ? '原文转述' : '故事复述', text, feedback.rubric.map(r => r.suggestion).join(' '), { rubric: feedback.rubric });
+        const text = issue(body.text), character = issue(body.character, 600), feedback = localRetell(lesson, text);
+        session.retellings.push({ text, character, feedback, at: now() });
+        record(state, session, lesson.characterLabel, character, lesson.characterPrompt);
+        record(state, session, feedback.copied ? '原文转述' : (lesson.expressionType === 'ideas' ? '文意讲述' : '故事复述'), text, feedback.rubric.map(r => r.suggestion).join(' '), { rubric: feedback.rubric });
         save(state); return { ...feedback, fallback: false, attempt: session.retellings.length };
       }
       throw error('未找到此操作。', 404);

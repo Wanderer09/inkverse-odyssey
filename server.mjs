@@ -3,13 +3,13 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from '
 import { dirname, join, resolve, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { lessons, publicLesson } from './content/lessons.mjs';
-import { SYSTEM_PROMPT, redact, localChat, localRetell, callModel, modelRetell } from './agent/core.mjs';
+import { lessons, publicLesson, extraReading } from './content/lessons.mjs';
+import { SYSTEM_PROMPT, redact, localChat, localRetell, localReflect, callModel, modelRetell } from './agent/core.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const idToken = () => randomBytes(24).toString('hex');
-const stages = ['read', 'understand', 'retell', 'finish'];
+const stages = ['read', 'understand', 'retell', 'reflect', 'finish'];
 const same = (a, b) => typeof a === 'string' && Buffer.byteLength(a) === Buffer.byteLength(b) && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 export function csvCell(value) { const s = String(value ?? ''); return '"' + (/^[\s]*[=+\-@]/.test(s) ? "'" + s : s).replaceAll('"', '""') + '"'; }
 
@@ -61,7 +61,7 @@ export function createApp(options = {}) {
       if (path.startsWith('/api/')) {
         limit(req.socket.remoteAddress + ':api', 200);
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}`) throw fail(403, '不接受跨站请求。');
-        if (req.method === 'GET' && path === '/api/config') return reply(200, { mode: online ? 'model' : 'local', model: online ? config.model : null, label: online ? '国产大模型学伴' : '本地教学演示', disclosure: online ? '学生表达将发送给配置的模型服务；自动反馈需教师复核。' : '无需密钥即可演示。本地规则提供支架提示，复述语义需教师复核。', lessons: lessons.map(publicLesson) });
+        if (req.method === 'GET' && path === '/api/config') return reply(200, { mode: online ? 'model' : 'local', model: online ? config.model : null, label: online ? '国产大模型学伴' : '本地教学演示', disclosure: online ? '学生表达将发送给配置的模型服务；自动反馈需教师复核。' : '无需密钥即可演示。本地规则提供支架提示，复述语义需教师复核。', extraReading, lessons: lessons.map(publicLesson) });
         if (req.method === 'POST' && path === '/api/sessions') {
           limit(req.socket.remoteAddress + ':create', 20);
           const data = await body(req), lesson = lessons.find(l => l.id === data.lessonId);
@@ -81,9 +81,21 @@ export function createApp(options = {}) {
             if (!stages.includes(data.stage)) throw fail(400, '学习阶段无效。');
             const target = stages.indexOf(data.stage), current = stages.indexOf(s.stage);
             if (target > current + 1) throw fail(400, '请按顺序学习。');
+            if (target >= 1 && !s.readingCheck && !s.answers.length) throw fail(400, '先自查字音和朗读，再继续。');
             if (target >= 2 && !lesson.questions.every(q => s.answers.some(a => a.questionId === q.id && a.correct))) throw fail(400, '先完成两个读懂小挑战，再讲故事。');
-            if (target === 3 && !s.retellings.length) throw fail(400, '先提交一次自己的故事。');
+            if (target >= 3 && !s.retellings.length) throw fail(400, '先提交一次自己的故事。');
+            if (target === 4 && !s.reflections?.length) throw fail(400, '先提交自己的道理感悟。');
             s.stage = data.stage; save(); return reply(200, safeSession(s));
+          }
+          if (action === 'reading') {
+            if (s.stage !== 'read' || data.pronunciation !== true || data.fluency !== true) throw fail(400, '请完成两项朗读自查。');
+            s.readingCheck = { pronunciation: true, fluency: true, type: '学生自查', at: new Date().toISOString() }; save(); return reply(200, { ok: true });
+          }
+          if (action === 'reflect') {
+            if (s.stage !== 'reflect') throw fail(400, '请在悟一悟阶段表达。');
+            const text = input(data.text), feedback = localReflect(lesson, text);
+            (s.reflections ??= []).push({ text, feedback, at: new Date().toISOString() });
+            record(s, '道理感悟', text, lesson.reflectionPrompt); save(); return reply(200, feedback);
           }
           if (action === 'note') {
             const note = lesson.notes.find(n => n[0] === data.word); if (!note) throw fail(400, '词语无效。');
@@ -108,7 +120,7 @@ export function createApp(options = {}) {
             const text = input(data.message, 600); if (s.messages.length >= 120) throw fail(400, '本次对话已满，请完成故事或新开学习。');
             let engine = 'local', fallback = false, answer;
             if (online) {
-              try { answer = await callModel(config, [{ role: 'system', content: SYSTEM_PROMPT + '\n当前学习阶段：' + s.stage + '\n课程数据：' + JSON.stringify({ text: lesson.text, notes: lesson.notes, transfer: lesson.transfer }) }, ...s.messages.slice(-10), { role: 'user', content: text }]); engine = 'model'; } catch { fallback = true; }
+              try { answer = await callModel(config, [{ role: 'system', content: SYSTEM_PROMPT + '\n当前学习阶段：' + ({read:'读一读',understand:'读一读·句意',retell:'说一说',reflect:'悟一悟',finish:'学习小结'})[s.stage] + '\n课程数据：' + JSON.stringify({ text: lesson.text, notes: lesson.notes, expressionType: lesson.expressionType, story: lesson.story, characterPrompt: lesson.characterPrompt, reflectionPrompt: lesson.reflectionPrompt }) }, ...s.messages.slice(-10), { role: 'user', content: text }]); engine = 'model'; } catch { fallback = true; }
             }
             answer ??= localChat(lesson, s, text);
             s.messages.push({ role: 'user', content: text }, { role: 'assistant', content: answer });
@@ -117,11 +129,12 @@ export function createApp(options = {}) {
           }
           if (action === 'retell') {
             if (s.stage !== 'retell') throw fail(400, '请先完成读懂阶段。');
-            const text = input(data.text); let feedback, fallback = false;
+            const text = input(data.text), character = input(data.character, 600); let feedback, fallback = false;
             if (online) { try { feedback = await modelRetell(config, lesson, text); } catch { fallback = true; } }
             feedback ??= localRetell(lesson, text);
-            s.retellings.push({ text, feedback, at: new Date().toISOString() });
-            record(s, feedback.copied ? '原文转述' : '故事复述', text, feedback.copied ? '引导将原文换成日常表达，先完成故事开始。' : feedback.rubric.filter(r => r.status !== '已提及').map(r => r.suggestion).join(' '), { rubric: feedback.rubric, engine: feedback.engine });
+            s.retellings.push({ text, character, feedback, at: new Date().toISOString() });
+            record(s, lesson.characterLabel, character, lesson.characterPrompt);
+            record(s, feedback.copied ? '原文转述' : (lesson.expressionType === 'ideas' ? '文意讲述' : '故事复述'), text, feedback.copied ? '引导将原文换成日常表达，先完成故事开始。' : feedback.rubric.filter(r => r.status !== '已提及').map(r => r.suggestion).join(' '), { rubric: feedback.rubric, engine: feedback.engine });
             save(); return reply(200, { ...feedback, fallback, attempt: s.retellings.length });
           }
           throw fail(404, '未找到此操作。');
@@ -155,7 +168,7 @@ export function createApp(options = {}) {
             store.sessions = store.sessions.filter(s => s.id !== sm[1]); store.records = store.records.filter(r => r.sessionId !== sm[1]); save(); return reply(200, { ok: true });
           }
           if (req.method === 'GET' && path === '/api/teacher/export') {
-            const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...store.records.map(r => [r.student, lessons.find(l => l.id === r.lessonId).title, r.stage, r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '学习过程数据'])];
+            const rows = [['学习编号', '课文', '学习阶段', '记录类型', '原始证据', '跟进建议', '复核状态', '教师备注', '记录时间', '数据类型'], ...store.records.map(r => [r.student, lessons.find(l => l.id === r.lessonId).title, ({ read: '读一读', understand: '读一读·句意', retell: '说一说', reflect: '悟一悟', finish: '学习小结' })[r.stage], r.category, r.evidence, r.suggestion, r.status, r.teacherNote, r.createdAt, r.synthetic ? '合成演示数据' : '学习过程数据'])];
             res.setHeader('Content-Disposition', 'attachment; filename="learning-records.csv"'); return reply(200, '\ufeff' + rows.map(row => row.map(csvCell).join(',')).join('\r\n'), 'text/csv; charset=utf-8');
           }
         }

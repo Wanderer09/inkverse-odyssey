@@ -24,7 +24,8 @@ async function fixture(t, options = {}) {
 async function learner(request, lessonId = 'sima') {
   const response = await request('/api/sessions', 'POST', { lessonId }); assert.equal(response.status, 201);
   const { id, token } = response.data, headers = { 'X-Session-Token': token };
-  return { id, token, call: (action, body) => request(`/api/sessions/${id}/${action}`, 'POST', body, headers), read: () => request(`/api/sessions/${id}`, 'GET', undefined, headers) };
+  await request(`/api/sessions/${id}/reading`, 'POST', { pronunciation: true, fluency: true }, headers);
+  return { id, token, call: (action, body) => request(`/api/sessions/${id}/${action}`, 'POST', action === 'retell' ? { character: '人物善于思考，因为能联系事情来行动。', ...body } : body, headers), read: () => request(`/api/sessions/${id}`, 'GET', undefined, headers) };
 }
 async function teacher(request) { const { data } = await request('/api/teacher/login', 'POST', { pin: 'test-pin' }); return { Authorization: 'Bearer ' + data.token }; }
 
@@ -46,8 +47,8 @@ test('完整学习闭环：注释不记困难，错答与求助留证据，复�
   const text = '小朋友们在庭院玩，一个孩子掉进瓮里。其他孩子跑开了，司马光拿石头打破瓮，水流出，孩子得救了。';
   const result = await s.call('retell', { text }); assert.equal(result.data.engine, 'local'); assert.equal(result.data.rubric.length, 3);
   assert.ok(result.data.rubric.every(r => r.status !== '已提及'));
-  await s.call('stage', { stage: 'finish' }); assert.equal((await s.read()).data.stage, 'finish');
-  r = await request('/api/teacher/records', 'GET', undefined, auth); assert.equal(r.data.records.length, 4); assert.ok(!JSON.stringify(r.data).includes('13812345678')); assert.equal(r.data.sessions[0].token, undefined);
+  await s.call('stage', { stage: 'reflect' }); await s.call('reflect', { text: '我认为遇到问题要认真思考，因为文中人物采取了不同的行动。' }); await s.call('stage', { stage: 'finish' }); assert.equal((await s.read()).data.stage, 'finish');
+  r = await request('/api/teacher/records', 'GET', undefined, auth); assert.equal(r.data.records.length, 6); assert.ok(!JSON.stringify(r.data).includes('13812345678')); assert.equal(r.data.sessions[0].token, undefined);
   const record = r.data.records[0];
   const reviewed = await request(`/api/teacher/records/${record.id}`, 'PATCH', { status: '已解决', teacherNote: '=IMPORT("attack")' }, auth); assert.equal(reviewed.data.status, '已解决');
   const csv = await request('/api/teacher/export', 'GET', undefined, auth); assert.match(csv.data, /学习编号/); assert.match(csv.data, /'\=IMPORT/);
@@ -70,13 +71,13 @@ test('教师鉴权、学生会话隔离、静态文件边界与跨站请求保�
   assert.equal((await request('/api/teacher/records', 'GET', undefined, auth)).status, 401);
 });
 
-test('四篇课程都能完成，演示数据明确标识且不会重复载入', async t => {
+test('十四篇课程都能完成，演示数据明确标识且不会重复载入', async t => {
   const { request } = await fixture(t);
   for (const lesson of lessons) {
     const s = await learner(request, lesson.id); await s.call('stage', { stage: 'understand' });
     for (const q of lesson.questions) assert.equal((await s.call('answer', { questionId: q.id, option: q.answer })).data.correct, true);
     await s.call('stage', { stage: 'retell' }); assert.equal((await s.call('retell', { text: '我想先讲故事开始，再回到原文补充结果。' })).status, 200);
-    assert.equal((await s.call('stage', { stage: 'finish' })).status, 200);
+    assert.equal((await s.call('stage', { stage: 'reflect' })).status, 200); assert.equal((await s.call('reflect', { text: '我认为遇到问题要认真思考，因为文中人物采取了不同的行动。' })).status, 200); assert.equal((await s.call('stage', { stage: 'finish' })).status, 200);
   }
   const auth = await teacher(request);
   await request('/api/teacher/seed', 'POST', {}, auth); await request('/api/teacher/seed', 'POST', {}, auth);
@@ -125,7 +126,7 @@ test('模型链路传入课程与已脱敏文本、验证原样证据，失败�
   for (const q of lessons[0].questions) await s.call('answer', { questionId: q.id, option: q.answer });
   await s.call('stage', { stage: 'retell' });
   let response = await s.call('retell', { text: '孩子在院子玩，我不小心写了13812345678。' });
-  assert.equal(response.data.engine, 'model'); assert.ok(!JSON.stringify(captured).includes('13812345678')); assert.match(captured.messages[0].content, /小竹/);
+  assert.equal(response.data.engine, 'model'); assert.ok(!JSON.stringify(captured).includes('13812345678')); assert.match(captured.messages[0].content, /古小言/);
   mode = 'fake'; response = await s.call('retell', { text: '孩子在院子里玩。' }); assert.equal(response.data.fallback, true); assert.equal(response.data.engine, 'local');
   mode = 'error'; response = await s.call('chat', { message: '我不懂去的意思' }); assert.equal(response.data.fallback, true); assert.equal(response.data.engine, 'local');
 });
@@ -134,4 +135,21 @@ test('未授权模型传输时仍为本地模式，浏览器不会收到密钥�
   const { request } = await fixture(t, { modelConfig: { apiKey: 'private-key', endpoint: 'https://invalid.test', model: 'model', consent: false } });
   const config = await request('/api/config'); assert.equal(config.data.mode, 'local'); assert.ok(!JSON.stringify(config.data).includes('private-key'));
   assert.equal(config.data.lessons[0].questions[0].answer, undefined);
+});
+
+test('服务端强制三步学习边界，并保存人物特点、朗读自查和感悟依据', async t => {
+  const {request}=await fixture(t), {data:s}=await request('/api/sessions','POST',{lessonId:'archery'});
+  const headers={'X-Session-Token':s.token},call=(action,body)=>request(`/api/sessions/${s.id}/${action}`,'POST',body,headers);
+  assert.equal((await call('stage',{stage:'understand'})).status,400);
+  await call('reading',{pronunciation:true,fluency:true});await call('stage',{stage:'understand'});
+  for(const q of lessons.find(l=>l.id==='archery').questions)await call('answer',{questionId:q.id,option:q.answer});
+  await call('stage',{stage:'retell'});
+  assert.equal((await call('retell',{text:'列子学习射箭，知道原因后才算学会。',character:''})).status,400);
+  await call('retell',{text:'列子射中了却不知道原因，后来练习三年，终于理解原因。',character:'关尹子严谨，列子愿意继续学习。'});
+  await call('stage',{stage:'reflect'});assert.equal((await call('stage',{stage:'finish'})).status,400);
+  await call('reflect',{text:'学会一题也要知道原因，文中关尹子问的是所以中。'});
+  assert.equal((await call('stage',{stage:'finish'})).status,200);
+  const auth=await teacher(request),r=await request('/api/teacher/records','GET',undefined,auth);
+  assert.equal(r.data.records.length,3);assert.equal(r.data.sessions[0].reflections[0].feedback.status,'待复核');
+  const csv=await request('/api/teacher/export','GET',undefined,auth);assert.match(csv.data,/人物特点/);assert.match(csv.data,/悟一悟/);
 });
